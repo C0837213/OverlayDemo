@@ -1,9 +1,5 @@
 package com.s20.overlaydemo;
 
-import androidx.annotation.NonNull;
-import androidx.core.app.ActivityCompat;
-import androidx.fragment.app.FragmentActivity;
-
 import android.Manifest;
 import android.content.Context;
 import android.content.pm.PackageManager;
@@ -12,6 +8,10 @@ import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Bundle;
+
+import androidx.annotation.NonNull;
+import androidx.core.app.ActivityCompat;
+import androidx.fragment.app.FragmentActivity;
 
 import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
@@ -24,10 +24,10 @@ import com.google.android.gms.maps.model.MarkerOptions;
 import com.google.android.gms.maps.model.Polygon;
 import com.google.android.gms.maps.model.PolygonOptions;
 import com.google.android.gms.maps.model.Polyline;
-import com.google.android.gms.maps.model.PolylineOptions;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Vector;
 
 public class MapsActivity extends FragmentActivity implements OnMapReadyCallback {
 
@@ -55,6 +55,88 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
                 .findFragmentById(R.id.map);
         mapFragment.getMapAsync(this);
+    }
+
+    private static int orientation(Point p, Point q, Point r) {
+        double val = (q.y - p.y) * (r.x - q.x) -
+                (q.x - p.x) * (r.y - q.y);
+
+        if (val == 0) return 0;  // collinear
+        return (val > 0) ? 1 : 2; // clock or counterclock wise
+    }
+
+    public static ArrayList<LatLng> convexHull(Point points[], int n) {
+        // Initialize Result
+        Vector<Point> hull = new Vector<Point>();
+        ArrayList<LatLng> latLngs = new ArrayList<>();
+
+        // Find the leftmost point
+        int l = 0;
+        for (int i = 1; i < n; i++)
+            if (points[i].x < points[l].x)
+                l = i;
+
+        int p = l, q;
+        do {
+            // Add current point to result
+            hull.add(points[p]);
+
+            q = (p + 1) % n;
+
+            for (int i = 0; i < n; i++) {
+                if (orientation(points[p], points[i], points[q])
+                        == 2)
+                    q = i;
+            }
+
+            p = q;
+
+        } while (p != l);  // While we don't come to first
+
+        for (int i = 0; i < hull.size(); i++) {
+            latLngs.add(new LatLng(hull.get(i).x, hull.get(i).y));
+        }
+
+
+        return latLngs;
+    }
+
+    private void startUpdateLocation() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+        locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 5000, 0, locationListener);
+
+        /*Location lastKnownLocation = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
+        setHomeMarker(lastKnownLocation);*/
+    }
+
+    private void requestLocationPermission() {
+        ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, REQUEST_CODE);
+    }
+
+    private boolean hasLocationPermission() {
+        return ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private void setHomeMarker(Location location) {
+        LatLng userLocation = new LatLng(location.getLatitude(), location.getLongitude());
+        MarkerOptions options = new MarkerOptions().position(userLocation)
+                .title("You are here")
+                .icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE))
+                .snippet("Your Location");
+        homeMarker = mMap.addMarker(options);
+        mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(userLocation, 15));
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+
+        if (REQUEST_CODE == requestCode) {
+            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 5000, 0, locationListener);
+            }
+        }
     }
 
     /**
@@ -135,8 +217,16 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
                         .strokeColor(Color.RED)
                         .strokeWidth(5);
 
-                for (int i=0; i<POLYGON_SIDES; i++) {
-                    options.add(markers.get(i).getPosition());
+                Point[] points = new Point[5];
+
+                for (int i = 0; i < POLYGON_SIDES; i++) {
+                    LatLng position = markers.get(i).getPosition();
+                    points[i] = new Point(position.latitude, position.longitude);
+                }
+
+                ArrayList<LatLng> latLngs = convexHull(points, POLYGON_SIDES);
+                for (LatLng temp : latLngs) {
+                    options.add(temp);
                 }
 
                 shape = mMap.addPolygon(options);
@@ -170,41 +260,12 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         });
     }
 
-    private void startUpdateLocation() {
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            return;
-        }
-        locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 5000, 0, locationListener);
+    class Point {
+        double x, y;
 
-        /*Location lastKnownLocation = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
-        setHomeMarker(lastKnownLocation);*/
-    }
-
-    private void requestLocationPermission() {
-        ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, REQUEST_CODE);
-    }
-
-    private boolean hasLocationPermission() {
-        return ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
-    }
-
-    private void setHomeMarker(Location location) {
-        LatLng userLocation = new LatLng(location.getLatitude(), location.getLongitude());
-        MarkerOptions options = new MarkerOptions().position(userLocation)
-                .title("You are here")
-                .icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE))
-                .snippet("Your Location");
-        homeMarker = mMap.addMarker(options);
-        mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(userLocation, 15));
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-
-        if (REQUEST_CODE == requestCode) {
-            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 5000, 0, locationListener);
-            }
+        Point(double x, double y) {
+            this.x = x;
+            this.y = y;
         }
     }
 }
